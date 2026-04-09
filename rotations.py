@@ -6,12 +6,12 @@
 import numpy as np
 
 def skew_symmetric(v):
-    """ Skew symmetric operator for a 3x1 vector. """
-    return np.array(
-        [[0, -v[2], v[1]],
-         [v[2], 0, -v[0]],
-         [-v[1], v[0], 0]]
-    )
+    v = np.asarray(v).flatten()
+    return np.array([
+        [0, -v[2], v[1]],
+        [v[2], 0, -v[0]],
+        [-v[1], v[0], 0]
+    ])
 
 class Quaternion():
     def __init__(self, w=1., x=0., y=0., z=0., axis_angle=None, euler=None):
