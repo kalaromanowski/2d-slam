@@ -147,13 +147,20 @@ class ScanICP(object):
             P_prev = prev_scan.P
             P_new = self.P
 
-        Ricp, Ticp, d, i = icp(P_prev, P_new)
+        Ricp, Ticp, d, i = icp(P_prev, P_new, max_iterations=10)  # Reduced iterations for speed
 
-        while np.any(d >= 0.025):
+        iteration_count = 0
+        max_icp_iterations = 5  # Limit total ICP calls to prevent infinite loops
+
+        while np.any(d >= 0.025) and iteration_count < max_icp_iterations:
             P_prev = P_prev[d < 0.025,:]
             P_new = P_new[d < 0.025,:]
 
-            Ricp, Ticp, d, i = icp(P_prev, P_new)
+            if len(P_prev) < 10 or len(P_new) < 10:  # Not enough points to continue
+                break
+
+            Ricp, Ticp, d, i = icp(P_prev, P_new, max_iterations=5)  # Even fewer iterations
+            iteration_count += 1
 
         return Ricp, Ticp
 

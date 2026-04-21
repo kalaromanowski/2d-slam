@@ -27,11 +27,11 @@ def dist(x1, y1, x2, y2):
 
 rmin = 0.1  # [m] - minimum range distance
 rmax = 1.5  # [m] - maximum range distance
-Lmin = 0.15 # [m] - minimum line length
-Pmin = 10   # [-] - minimum number of scan points in line
-Snum = 6    # [-] - number of scan points in seed
-eps  = 0.02 # [m] - maximum distance from point in seed segment to fitted line
-delt = 0.04 # [m] - maximum distance from point to point in seed segment
+Lmin = 0.25 # [m] - minimum line length (increased from 0.15)
+Pmin = 15   # [-] - minimum number of scan points in line (increased from 10)
+Snum = 8    # [-] - number of scan points in seed (increased from 6)
+eps  = 0.03 # [m] - maximum distance from point in seed segment to fitted line (relaxed from 0.02)
+delt = 0.06 # [m] - maximum distance from point to point in seed segment (relaxed from 0.04)
 thres = 0.15 # [m] - maximum distance between two end points to be counted as a corner point
 phimin = np.pi/6 # [rad] - minimum angular difference between two consecutive lines for their intersection to be counted as a corned point
 corspd = 0.1 # [m] - maximum distance between end point differences between two lines for correspondence
@@ -47,22 +47,33 @@ class ScanFeature(object):
         phi - [op.] 1D array of angle readings (default: -120 to 120 degrees)
         """
 
-        if phi == None:
+        if phi is None:
             phi = np.linspace(-2*np.pi/3, 2*np.pi/3, len(r))
 
         mask = (r < rmax) & (r > rmin)
         self.r = r[mask]
         self.phi = phi[mask]
+        
+        # Downsample to reduce computational load (keep every 3rd point)
+        downsample_factor = 3
+        if len(self.r) > 100:  # Only downsample if we have enough points
+            indices = np.arange(0, len(self.r), downsample_factor)
+            self.r = self.r[indices]
+            self.phi = self.phi[indices]
+        
         self.n = len(self.r) # number of scan points
         self.lines = []
         self.kpoints = []
         self.frame = frame
 
+        # Temporarily disable feature extraction for debugging
+        # print(f"ScanFeature: processing {len(self.r)} points")
         self.find_lines()
         for line in self.lines:
             line.calc_params()
         self.clean_lines()
         self.find_keypoints()
+        # print(f"ScanFeature: created {len(self.lines)} lines and {len(self.kpoints)} keypoints")
 
         if frame == "global":
             self.xt = 0
@@ -433,8 +444,11 @@ class Seed(Line):
 
 
 def update_state(r0, r1, x0, y0, head0):
+    # print(f"Starting feature update_state for scan pair")
     s0 = ScanFeature(r0)
+    # print(f"Created s0 with {len(s0.lines)} lines and {len(s0.kpoints)} keypoints")
     s1 = ScanFeature(r1)
+    # print(f"Created s1 with {len(s1.lines)} lines and {len(s1.kpoints)} keypoints")
 
     correspondences = 0
     h_change = 0

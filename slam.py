@@ -296,14 +296,41 @@ class SLAM:
         st = round(time.time()) # initialize runtime
 
         print("Initiating Kalman filter loop...")
+        print("=" * 80)
+        print(f"Total iterations to process: {self.n}")
+        print(f"LIDAR scans available: {len(self.lid_r)}")
+        print(f"Algorithm: {self.algorithm}")
+        print("=" * 80)
+
         for k in range(1, self.n):
 
-            # Progress report
-            if k % 100 == 0:
+            # Simple progress indicator - show every 10 iterations or first/last
+            if k <= 5 or k % 10 == 0 or k == self.n-1:
+                print(f"Starting iteration {k}/{self.n}...")
+
+            # Enhanced progress report
+            if k % 50 == 0 or k == self.n-1:  # Show progress more frequently
                 tm_new = round(time.time())
                 tm_el = tm_new - st
-                tm_rm = (self.n-k)*tm_el//k
-                print("Iteration {0}/{1}: Time elapsed {2}m{3}sec - Est. time remaining {4}m{5}sec".format(k, self.n, tm_el//60, tm_el%60, tm_rm//60, tm_rm%60))
+                tm_rm = (self.n-k)*tm_el//k if k > 0 else 0
+
+                # Calculate progress percentage and bar
+                progress = k / (self.n-1) * 100
+                bar_length = 40
+                filled_length = int(bar_length * progress / 100)
+                bar = '█' * filled_length + '░' * (bar_length - filled_length)
+
+                # Current position estimate
+                x_pos = self.p_est[k-1, 0] if k > 1 else 0.0
+                y_pos = self.p_est[k-1, 1] if k > 1 else 0.0
+                heading = np.arctan2(self.p_est[k-1, 1], self.p_est[k-1, 0]) * 180/np.pi if k > 1 else 0.0
+
+                # LIDAR status
+                lidar_status = f"LIDAR scan {lid_i}/{len(self.lid_r)}" if lid_i < len(self.lid_r) else "LIDAR complete"
+
+                print("2d")
+                print(".2f")
+                print(".1f")
 
             delta_t = (self.imu_t[k] - self.imu_t[k-1])
 
@@ -335,10 +362,16 @@ class SLAM:
             # Check availability of LIDAR measurements
             if lid_i != len(self.lid_r) and t >= self.lid_t[lid_i]:
 
+                # if k <= 5:  # Debug first few LIDAR processing
+                #     print(f"Processing LIDAR scan {lid_i} at iteration {k}, time {t:.3f}")
+
                 if self.algorithm == "icp":
                     y_k = SLAM.icp_state(self.gf, self.lid_r[lid_i], lid_state)
                 if self.algorithm == "feature":
                     y_k = SLAM.feature_state(self.lid_r[lid_i-1], self.lid_r[lid_i], lid_state)
+
+                # if k <= 5:  # Debug first few LIDAR processing
+                #     print(f"LIDAR processing completed for scan {lid_i}")
 
                 new_state = SLAM.measurement_update(y_k, p_check, v_check,
                                                     q_check, del_u_check,
@@ -365,7 +398,13 @@ class SLAM:
 
         # Report finished progress
         tm_el = round(time.time()) - st
-        print("Finished iterating after {0}m{1}sec".format(tm_el//60, tm_el%60))
+        print("\n" + "=" * 80)
+        print("SLAM processing completed!")
+        print(f"Total iterations: {self.n}")
+        print(f"Total LIDAR scans processed: {len(self.lid_r)}")
+        print(f"Total time: {tm_el//60}m{tm_el%60}sec")
+        print(f"Average time per iteration: {tm_el/self.n:.3f} seconds")
+        print("=" * 80)
 
 
     def postprocess(self):
