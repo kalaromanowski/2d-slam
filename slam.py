@@ -19,7 +19,8 @@ class SLAM:
 
     def __init__(self, algorithm, imu_file, lid_file,
                  gt_traj_file="gt_data/gt_traj.csv",
-                 gt_env_file="gt_data/gt_wall.csv"):
+                 gt_env_file="gt_data/gt_wall.csv",
+                 use_ground_truth=True):
         """
         Instantiates a SLAM object based on IMU and LiDAR input data, specifying
         a LiDAR scan matching algorithm.
@@ -38,13 +39,29 @@ class SLAM:
             gt_env_file (str):
                 Path string to ground truth environment (.csv-file).
                 Default: "gt_data/gt_wall.csv"
+            use_ground_truth (bool):
+                Whether to load and use ground truth data. Set to False to run
+                without ground truth files. Default: True
         """
 
         self.algorithm = algorithm
         self.imu_file = imu_file
         self.lid_file = lid_file
-        self.gt_traj = pd.read_csv(gt_traj_file, header=None, usecols=range(2)).values
-        self.gt_wall = pd.read_csv(gt_env_file, header=None, usecols=range(2)).values
+        self.use_ground_truth = use_ground_truth
+        
+        # Load ground truth if requested and files exist
+        if use_ground_truth:
+            try:
+                self.gt_traj = pd.read_csv(gt_traj_file, header=None, usecols=range(2)).values
+                self.gt_wall = pd.read_csv(gt_env_file, header=None, usecols=range(2)).values
+            except FileNotFoundError:
+                print("Warning: Ground truth files not found. Proceeding without ground truth.")
+                self.gt_traj = None
+                self.gt_wall = None
+                self.use_ground_truth = False
+        else:
+            self.gt_traj = None
+            self.gt_wall = None
 
 
     ########################
@@ -130,8 +147,13 @@ class SLAM:
     def plot_ground_truth(self):
         """
         Plots a visualization of the ground truth trajectory and environment.
+        Skips plotting if ground truth data is not available.
 
         """
+        
+        if not self.use_ground_truth or self.gt_traj is None:
+            print("Ground truth data not available. Skipping ground truth visualization.")
+            return
 
         fig = plt.figure(figsize=(9,7))
         plt.plot(self.gt_traj[:,0], self.gt_traj[:,1], 'r.-', markersize=1, label="Trajectory")
@@ -139,8 +161,19 @@ class SLAM:
         plt.plot(self.gt_traj[-1,0], self.gt_traj[-1,1], 'rx', markersize=12, label="Trajectory end")
         plt.plot(self.gt_wall[:2,0], self.gt_wall[:2,1], 'k-', linewidth=1, label="Maze walls")
         plt.plot(self.gt_wall[:,0], self.gt_wall[:,1], 'k.', markersize=0.5)
-        plt.xlim(-0.1, 1.7)
-        plt.ylim(-0.1, 1.3)
+        
+        # Calculate bounds from ground truth data and add padding
+        all_x = np.concatenate([self.gt_traj[:,0], self.gt_wall[:,0]])
+        all_y = np.concatenate([self.gt_traj[:,1], self.gt_wall[:,1]])
+        x_min, x_max = all_x.min(), all_x.max()
+        y_min, y_max = all_y.min(), all_y.max()
+        x_range = x_max - x_min
+        y_range = y_max - y_min
+        padding = 0.1  # 10% padding
+        plt.xlim(x_min - padding * x_range, x_max + padding * x_range)
+        plt.ylim(y_min - padding * y_range, y_max + padding * y_range)
+        ax = plt.gca()
+        ax.set_aspect('equal', adjustable='datalim')
         plt.legend(loc="right")
         plt.grid(alpha=0.5)
         plt.title("Ground truth of experiment")
@@ -342,7 +375,11 @@ class SLAM:
         """
 
         if self.algorithm == "icp":
-            self.pc_t = np.array([-self.gf.y_pc + self.gt_traj[0][0], self.gf.x_pc + self.gt_traj[0][1]]).T
+            # Translate point cloud to align with ground truth (if available) or origin
+            if self.use_ground_truth and self.gt_traj is not None:
+                self.pc_t = np.array([-self.gf.y_pc + self.gt_traj[0][0], self.gf.x_pc + self.gt_traj[0][1]]).T
+            else:
+                self.pc_t = np.array([-self.gf.y_pc, self.gf.x_pc]).T
 
         if self.algorithm == "feature":
             # Remove unsufficiently matched line segments
@@ -356,31 +393,50 @@ class SLAM:
 
             # Transform LiDAR scans in global reference frame
             for line in self.gf.lines:
-                line.x_start, line.y_start = -line.y_start + self.gt_traj[0][0], line.x_start + self.gt_traj[0][1]
-                line.x_end, line.y_end = -line.y_end + self.gt_traj[0][0], line.x_end + self.gt_traj[0][1]
+                # Translate walls to align with ground truth (if available) or origin
+                if self.use_ground_truth and self.gt_traj is not None:
+                    line.x_start, line.y_start = -line.y_start + self.gt_traj[0][0], line.x_start + self.gt_traj[0][1]
+                    line.x_end, line.y_end = -line.y_end + self.gt_traj[0][0], line.x_end + self.gt_traj[0][1]
+                else:
+                    line.x_start, line.y_start = -line.y_start, line.x_start
+                    line.x_end, line.y_end = -line.y_end, line.x_end
 
         # Transform final state estimates
-        self.p_est[:,:2] = (np.array([[0,-1],[1,0]]).dot(self.p_est[:,:2].T) + self.gt_traj[0].reshape(2,1)).T
+        # Translate trajectory to align with ground truth (if available) or origin
+        if self.use_ground_truth and self.gt_traj is not None:
+            self.p_est[:,:2] = (np.array([[0,-1],[1,0]]).dot(self.p_est[:,:2].T) + self.gt_traj[0].reshape(2,1)).T
+        else:
+            self.p_est[:,:2] = (np.array([[0,-1],[1,0]]).dot(self.p_est[:,:2].T)).T
         self.v_est[:,:2] = np.array([[0,-1],[1,0]]).dot(self.v_est[:,:2].T).T
 
 
     def plot_results(self):
         """
-        Plots the final SLAM results against the ground truth.
+        Plots the final SLAM results. If ground truth is available, plots it for comparison.
 
         """
 
         fig, ax = plt.subplots(figsize=(10,8))
 
-        ax.plot(self.gt_traj[:,0], self.gt_traj[:,1], 'r-', markersize=0.5, label="Ground truth trajectory")
-        ax.plot(self.gt_wall[:2,0], self.gt_wall[:2,1], 'k-', linewidth=0.5, label="Ground truth maze walls")
-        ax.plot(self.gt_wall[:,0], self.gt_wall[:,1], 'k.', markersize=0.5, alpha=0.25)
+        # Collect all data points to determine axis bounds
+        all_x = []
+        all_y = []
+
+        # Plot ground truth if available
+        if self.use_ground_truth and self.gt_traj is not None:
+            ax.plot(self.gt_traj[:,0], self.gt_traj[:,1], 'r-', markersize=0.5, label="Ground truth trajectory")
+            ax.plot(self.gt_wall[:2,0], self.gt_wall[:2,1], 'k-', linewidth=0.5, label="Ground truth maze walls")
+            ax.plot(self.gt_wall[:,0], self.gt_wall[:,1], 'k.', markersize=0.5, alpha=0.25)
+            all_x.extend(self.gt_traj[:,0])
+            all_y.extend(self.gt_traj[:,1])
 
         if self.algorithm == "icp":
             plot_idx = np.random.randint(self.pc_t.shape[0], size=round(self.pc_t.shape[0]/20))
             x_plot = self.pc_t[plot_idx,0]
             y_plot = self.pc_t[plot_idx,1]
             ax.plot(x_plot, y_plot, 'm.', markersize=1, label="Point cloud of walls")
+            all_x.extend(x_plot)
+            all_y.extend(y_plot)
 
         if self.algorithm == "feature":
             for i, line in enumerate(self.gf.lines):
@@ -388,10 +444,28 @@ class SLAM:
                     ax.plot([line.x_start, line.x_end], [line.y_start, line.y_end], 'm--', linewidth=3, label="Estimated walls")
                 else:
                     ax.plot([line.x_start, line.x_end], [line.y_start, line.y_end], 'm--', linewidth=3)
+                all_x.extend([line.x_start, line.x_end])
+                all_y.extend([line.y_start, line.y_end])
 
         ax.plot(self.p_est[:,0], self.p_est[:,1], 'b-.', lw=3, label="Estimated trajectory")
-        ax.set_xlim(-0.2, 1.8)
-        ax.set_ylim(-0.2, 1.4)
+        all_x.extend(self.p_est[:,0])
+        all_y.extend(self.p_est[:,1])
+
+        # Calculate bounds from data and add padding
+        if all_x and all_y:
+            x_min, x_max = min(all_x), max(all_x)
+            y_min, y_max = min(all_y), max(all_y)
+            x_range = x_max - x_min
+            y_range = y_max - y_min
+            padding = 0.15  # 15% padding on all sides
+            ax.set_xlim(x_min - padding * x_range, x_max + padding * x_range)
+            ax.set_ylim(y_min - padding * y_range, y_max + padding * y_range)
+        else:
+            # Fallback to default limits if no data
+            ax.set_xlim(-0.2, 1.8)
+            ax.set_ylim(-0.2, 1.4)
+
+        ax.set_aspect('equal', adjustable='datalim')
         plt.legend(loc="right", fontsize=9)
         plt.grid(alpha=0.5)
         start, end = ax.get_xlim()
@@ -410,9 +484,13 @@ class SLAM:
 
         Returns:
             RMSE_traj (float):
-                Root mean squared error (RMSE) for the trajectory error.
+                Root mean squared error (RMSE) for the trajectory error, or None if
+                ground truth is not available.
         """
 
+        if not self.use_ground_truth or self.gt_traj is None:
+            return None
+        
         RMSE_traj = SLAM.RMSE(self.gt_traj, self.p_est[:,:2])
         return RMSE_traj
 
@@ -426,8 +504,12 @@ class SLAM:
 
         Returns:
             RMSE_wall (float):
-                Root mean squared error (RMSE) for the maze wall error.
+                Root mean squared error (RMSE) for the maze wall error, or None if
+                ground truth is not available.
         """
+
+        if not self.use_ground_truth or self.gt_wall is None:
+            return None
 
         x_wall = np.array([])
         y_wall = np.array([])
@@ -450,9 +532,13 @@ class SLAM:
 
         Returns:
             RMSE_wall (float):
-                Root mean squared error (RMSE) for the maze wall error.
+                Root mean squared error (RMSE) for the maze wall error, or None if
+                ground truth is not available.
         """
 
+        if not self.use_ground_truth or self.gt_wall is None:
+            return None
+        
         RMSE_wall = SLAM.RMSE(self.gt_wall, self.pc_t)
         return RMSE_wall
 
