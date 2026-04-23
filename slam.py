@@ -43,8 +43,13 @@ class SLAM:
         self.algorithm = algorithm
         self.imu_file = imu_file
         self.lid_file = lid_file
-        self.gt_traj = pd.read_csv(gt_traj_file, header=None, usecols=range(2)).values
-        self.gt_wall = pd.read_csv(gt_env_file, header=None, usecols=range(2)).values
+        try:
+            self.gt_traj = pd.read_csv(gt_traj_file, header=None, usecols=range(2)).values
+            self.gt_wall = pd.read_csv(gt_env_file, header=None, usecols=range(2)).values
+        except FileNotFoundError:
+            # Dummy ground truth if not available
+            self.gt_traj = np.array([[0, 0], [0, 0]])
+            self.gt_wall = np.array([[0, 0], [0, 0]])
 
 
     ########################

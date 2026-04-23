@@ -7,6 +7,7 @@ import numpy as np
 
 def skew_symmetric(v):
     """ Skew symmetric operator for a 3x1 vector. """
+    v = np.asarray(v).flatten()
     return np.array(
         [[0, -v[2], v[1]],
          [v[2], 0, -v[0]],
