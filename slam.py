@@ -223,12 +223,14 @@ class SLAM:
         self.q_est = np.zeros([self.n, 4])      # orientation estimates as quaternions
         self.del_u_est = np.zeros([self.n, 6])  # sensor bias estimates
         self.p_cov = np.zeros([self.n, 15, 15]) # covariance array at each timestep
+        self.lidar_states = np.zeros([self.n, 3]) # position and heading state associated with each LiDAR scan
 
         # Set initial values
         self.p_est[0] = np.zeros((1,3))
         self.v_est[0] = np.zeros((1,3))
         self.q_est[0] = self.imu_q[0,:]
         self.del_u_est[0] = np.zeros((1,6))
+        self.lidar_states[0] = np.zeros((1,3))
 
         # Initial uncertainties in standard deviations
         p_cov_p = 0.02*np.ones(3,)                # [m] position
@@ -342,6 +344,7 @@ class SLAM:
             self.q_est[k,:] = q_check.reshape(4,)
             self.del_u_est[k,:] = del_u_check.reshape(6,)
             self.p_cov[k,:,:] = p_cov_check
+            self.lidar_states[k,:] = y_k.reshape(3,)
 
             # Increment time
             t += delta_t
@@ -376,7 +379,7 @@ class SLAM:
                 line.x_end, line.y_end = -line.y_end + self.gt_traj[0][0], line.x_end + self.gt_traj[0][1]
 
         # Transform final state estimates
-        #self.p_est[:,:2] = (np.array([[0,-1],[1,0]]).dot(self.p_est[:,:2].T) + self.gt_traj[0].reshape(2,1)).T
+        self.p_est[:,:2] = (np.array([[0,-1],[1,0]]).dot(self.p_est[:,:2].T) + self.gt_traj[0].reshape(2,1)).T
         self.v_est[:,:2] = np.array([[0,-1],[1,0]]).dot(self.v_est[:,:2].T).T
 
 
@@ -405,14 +408,13 @@ class SLAM:
                 else:
                     ax.plot([line.x_start, line.x_end], [line.y_start, line.y_end], 'm--', linewidth=3)
 
-        # Scale trajectory by 10x for better visualization
-        traj_x = self.p_est[:,0]*10
-        traj_y = self.p_est[:,1]*10
-        ax.plot(traj_x, traj_y, 'b-.', lw=3, label="Estimated trajectory (scaled 10x)")
+
+        reconstructed_path = np.cumsum(self.gf.T, axis=0)
+        ax.plot(reconstructed_path[:,1], reconstructed_path[:,0]*-1, 'b-', lw=3, label="Estimated Trajectory", zorder=5)
         
         # Auto-scale axis limits to include all data
-        all_x = np.concatenate([self.gt_traj[:,0], self.gt_wall[:,0], x_plot if self.algorithm == "icp" else [0], traj_x])
-        all_y = np.concatenate([self.gt_traj[:,1], self.gt_wall[:,1], y_plot if self.algorithm == "icp" else [0], traj_y])
+        all_x = np.concatenate([self.gt_traj[:,0], self.gt_wall[:,0], x_plot if self.algorithm == "icp" else [0], reconstructed_path[:,1]])
+        all_y = np.concatenate([self.gt_traj[:,1], self.gt_wall[:,1], y_plot if self.algorithm == "icp" else [0], reconstructed_path[:,0]*-1])
         
         x_margin = (np.max(all_x) - np.min(all_x)) * 0.1
         y_margin = (np.max(all_y) - np.min(all_y)) * 0.1
@@ -425,6 +427,7 @@ class SLAM:
         ax.set_xlabel("x [m]")
         ax.set_ylabel("y [m]")
         plt.show()
+        print(self.gf.T)
 
 
     @property
