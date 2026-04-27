@@ -19,7 +19,8 @@ class SLAM:
 
     def __init__(self, algorithm, imu_file, lid_file,
                  gt_traj_file="gt_data/gt_traj.csv",
-                 gt_env_file="gt_data/gt_wall.csv"):
+                 gt_env_file="gt_data/gt_wall.csv",
+                 use_gt=True):
         """
         Instantiates a SLAM object based on IMU and LiDAR input data, specifying
         a LiDAR scan matching algorithm.
@@ -38,16 +39,26 @@ class SLAM:
             gt_env_file (str):
                 Path string to ground truth environment (.csv-file).
                 Default: "gt_data/gt_wall.csv"
+            use_gt (bool):
+                If True, load ground truth data for comparison. If False,
+                skip ground truth loading and plotting. Default: True
         """
 
         self.algorithm = algorithm
         self.imu_file = imu_file
         self.lid_file = lid_file
-        try:
-            self.gt_traj = pd.read_csv(gt_traj_file, header=None, usecols=range(2)).values
-            self.gt_wall = pd.read_csv(gt_env_file, header=None, usecols=range(2)).values
-        except FileNotFoundError:
-            # Dummy ground truth if not available
+        self.use_gt = use_gt
+        
+        if use_gt:
+            try:
+                self.gt_traj = pd.read_csv(gt_traj_file, header=None, usecols=range(2)).values
+                self.gt_wall = pd.read_csv(gt_env_file, header=None, usecols=range(2)).values
+            except FileNotFoundError:
+                # Dummy ground truth if not available
+                self.gt_traj = np.array([[0, 0], [0, 0]])
+                self.gt_wall = np.array([[0, 0], [0, 0]])
+        else:
+            # Dummy ground truth when not using
             self.gt_traj = np.array([[0, 0], [0, 0]])
             self.gt_wall = np.array([[0, 0], [0, 0]])
 
@@ -382,9 +393,9 @@ class SLAM:
         ax.plot(self.gt_wall[:,0], self.gt_wall[:,1], 'k.', markersize=0.5, alpha=0.25)
 
         if self.algorithm == "icp":
-            plot_idx = np.random.randint(self.pc_t.shape[0], size=round(self.pc_t.shape[0]/20))
-            x_plot = self.pc_t[plot_idx,0]
-            y_plot = self.pc_t[plot_idx,1]
+            # Plot all of the point cloud for complete visualization
+            x_plot = self.pc_t[:,0]
+            y_plot = self.pc_t[:,1]
             ax.plot(x_plot, y_plot, 'm.', markersize=1, label="Point cloud of walls")
 
         if self.algorithm == "feature":
@@ -394,13 +405,22 @@ class SLAM:
                 else:
                     ax.plot([line.x_start, line.x_end], [line.y_start, line.y_end], 'm--', linewidth=3)
 
-        ax.plot(self.p_est[:,0], self.p_est[:,1], 'b-.', lw=3, label="Estimated trajectory")
-        ax.set_xlim(-0.2, 1.8)
-        ax.set_ylim(-0.2, 1.4)
+        # Scale trajectory by 10x for better visualization
+        traj_x = self.p_est[:,0]*10
+        traj_y = self.p_est[:,1]*10
+        ax.plot(traj_x, traj_y, 'b-.', lw=3, label="Estimated trajectory (scaled 10x)")
+        
+        # Auto-scale axis limits to include all data
+        all_x = np.concatenate([self.gt_traj[:,0], self.gt_wall[:,0], x_plot if self.algorithm == "icp" else [0], traj_x])
+        all_y = np.concatenate([self.gt_traj[:,1], self.gt_wall[:,1], y_plot if self.algorithm == "icp" else [0], traj_y])
+        
+        x_margin = (np.max(all_x) - np.min(all_x)) * 0.1
+        y_margin = (np.max(all_y) - np.min(all_y)) * 0.1
+        ax.set_xlim(np.min(all_x) - x_margin, np.max(all_x) + x_margin)
+        ax.set_ylim(np.min(all_y) - y_margin, np.max(all_y) + y_margin)
+        
         plt.legend(loc="right", fontsize=9)
         plt.grid(alpha=0.5)
-        start, end = ax.get_xlim()
-        ax.xaxis.set_ticks(np.arange(start, end, 0.2))
         ax.set_title("SLAM results")
         ax.set_xlabel("x [m]")
         ax.set_ylabel("y [m]")
@@ -417,7 +437,8 @@ class SLAM:
             RMSE_traj (float):
                 Root mean squared error (RMSE) for the trajectory error.
         """
-
+        if not self.use_gt:
+            return None
         RMSE_traj = SLAM.RMSE(self.gt_traj, self.p_est[:,:2])
         return RMSE_traj
 
@@ -433,7 +454,9 @@ class SLAM:
             RMSE_wall (float):
                 Root mean squared error (RMSE) for the maze wall error.
         """
-
+        if not self.use_gt:
+            return None
+        
         x_wall = np.array([])
         y_wall = np.array([])
 
@@ -457,7 +480,8 @@ class SLAM:
             RMSE_wall (float):
                 Root mean squared error (RMSE) for the maze wall error.
         """
-
+        if not self.use_gt:
+            return None
         RMSE_wall = SLAM.RMSE(self.gt_wall, self.pc_t)
         return RMSE_wall
 
