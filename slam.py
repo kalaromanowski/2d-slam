@@ -124,7 +124,7 @@ class SLAM:
 
         #lid = pd.read_csv(self.lid_file, usecols=[2] + list(range(11, 693)))
         lid = convert_lidar(self.lid_file)
-        lid = lid.iloc[:,[2] + list(range(11, 693))]
+        lid = lid.iloc[1:,[2] + list(range(11, 693))]
 
         # Assign arrays for timestamp and range data
         self.lid_t = np.round(lid["field.header.stamp"].values / 1e9, 3) # converting to seconds with three decimal places
@@ -361,7 +361,7 @@ class SLAM:
 
         if self.algorithm == "icp":
             # Plot all of the point cloud for complete visualization
-            x_plot = self.pc_t[:,0]
+            x_plot = self.pc_t[:,0]*-1
             y_plot = self.pc_t[:,1]
             ax.plot(x_plot, y_plot, 'm.', markersize=1, label="Point cloud of walls")
 
@@ -373,7 +373,7 @@ class SLAM:
                     ax.plot([line.x_start, line.x_end], [line.y_start, line.y_end], 'm--', linewidth=3)
 
 
-        reconstructed_path = np.cumsum(self.gf.T, axis=0)
+        reconstructed_path = np.cumsum(self.gf.T, axis=0)*[1,-1]
         ax.plot(reconstructed_path[:,1], reconstructed_path[:,0]*-1, 'b-', lw=3, label="Estimated Trajectory", zorder=5)
         
         # Auto-scale axis limits to include all data
@@ -385,13 +385,13 @@ class SLAM:
         ax.set_xlim(np.min(all_x) - x_margin, np.max(all_x) + x_margin)
         ax.set_ylim(np.min(all_y) - y_margin, np.max(all_y) + y_margin)
         
-        plt.legend(loc="right", fontsize=9)
+        plt.legend(loc="upper right", fontsize=9)
         plt.grid(alpha=0.5)
-        ax.set_title("SLAM results")
+        graphname = "Map 1, Trial 1"
+        ax.set_title("SLAM Results for "+ graphname)
         ax.set_xlabel("x [m]")
         ax.set_ylabel("y [m]")
         plt.show()
-        print(self.gf.T)
 
     #####################
     ### Class methods ###
