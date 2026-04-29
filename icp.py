@@ -188,8 +188,8 @@ class GlobalFrame(object):
         self.R[k,:,:] = np.dot(self.R[k-1,:,:], Ricp.T)
         self.T[k,:] = np.dot(self.R[k,:,:], Ticp.reshape(2,1)).flatten()
 
-        self.pose = pose - self.T[k,:].flatten()
-        head = wraptopi(head - np.arctan2(Ricp[1,0], Ricp[0,0]))
+        self.pose = pose + self.T[k,:].flatten()
+        head = wraptopi(head + np.arctan2(Ricp[1,0], Ricp[0,0]))
         self.traj = np.vstack((self.traj, self.pose))
 
         P_trans = np.dot(self.R[k,:,:], new_scan.P.T) - np.sum(self.T,0).reshape(2,1)

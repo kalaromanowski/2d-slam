@@ -10,6 +10,7 @@ from rotations import Quaternion, skew_symmetric
 from feature_scan import ScanFeature, update_state, update_map
 from icp import GlobalFrame, wraptopi
 import time
+from convert_data import convert_imu, convert_lidar
 
 class SLAM:
 
@@ -17,10 +18,7 @@ class SLAM:
     ### Constructor ###
     ###################
 
-    def __init__(self, algorithm, imu_file, lid_file,
-                 gt_traj_file="gt_data/gt_traj.csv",
-                 gt_env_file="gt_data/gt_wall.csv",
-                 use_gt=True):
+    def __init__(self, algorithm, imu_file, lid_file):
         """
         Instantiates a SLAM object based on IMU and LiDAR input data, specifying
         a LiDAR scan matching algorithm.
@@ -33,34 +31,11 @@ class SLAM:
                 Path string to IMU dataset (.csv-file).
             lid_file (str):
                 Path string to LiDAR dataset (.csv-file).
-            gt_traj_file (str):
-                Path string to ground truth trajectory (.csv-file).
-                Default: "gt_data/gt_traj.csv"
-            gt_env_file (str):
-                Path string to ground truth environment (.csv-file).
-                Default: "gt_data/gt_wall.csv"
-            use_gt (bool):
-                If True, load ground truth data for comparison. If False,
-                skip ground truth loading and plotting. Default: True
         """
 
         self.algorithm = algorithm
         self.imu_file = imu_file
         self.lid_file = lid_file
-        self.use_gt = use_gt
-        
-        if use_gt:
-            try:
-                self.gt_traj = pd.read_csv(gt_traj_file, header=None, usecols=range(2)).values
-                self.gt_wall = pd.read_csv(gt_env_file, header=None, usecols=range(2)).values
-            except FileNotFoundError:
-                # Dummy ground truth if not available
-                self.gt_traj = np.array([[0, 0], [0, 0]])
-                self.gt_wall = np.array([[0, 0], [0, 0]])
-        else:
-            # Dummy ground truth when not using
-            self.gt_traj = np.array([[0, 0], [0, 0]])
-            self.gt_wall = np.array([[0, 0], [0, 0]])
 
 
     ########################
@@ -83,8 +58,8 @@ class SLAM:
                 gravity component in the z-direction, will be done by averaging
                 across the first ´stby´ number of IMU readings. Default: False
         """
-
-        imu = pd.read_csv(self.imu_file, usecols=["field.header.stamp",
+        imu = convert_imu(self.imu_file)
+        imu = imu.loc[:,["field.header.stamp",
                                                   "field.orientation.x",
                                                   "field.orientation.y",
                                                   "field.orientation.z",
@@ -94,7 +69,18 @@ class SLAM:
                                                   "field.angular_velocity.z",
                                                   "field.linear_acceleration.x",
                                                   "field.linear_acceleration.y",
-                                                  "field.linear_acceleration.z"])
+                                                  "field.linear_acceleration.z"]]
+        # imu = pd.read_csv(self.imu_file, usecols=["field.header.stamp",
+        #                                           "field.orientation.x",
+        #                                           "field.orientation.y",
+        #                                           "field.orientation.z",
+        #                                           "field.orientation.w",
+        #                                           "field.angular_velocity.x",
+        #                                           "field.angular_velocity.y",
+        #                                           "field.angular_velocity.z",
+        #                                           "field.linear_acceleration.x",
+        #                                           "field.linear_acceleration.y",
+        #                                           "field.linear_acceleration.z"])
         imu.columns = ["timestamp", "q_x", "q_y", "q_z", "q_w", "om_x", "om_y", "om_z", "a_x", "a_y", "a_z"]
 
         # Assign arrays for timestamp, linear acceleration and rotational velocity
@@ -136,31 +122,13 @@ class SLAM:
 
         """
 
-        lid = pd.read_csv(self.lid_file, usecols=[2] + list(range(11, 693)))
+        #lid = pd.read_csv(self.lid_file, usecols=[2] + list(range(11, 693)))
+        lid = convert_lidar(self.lid_file)
+        lid = lid.iloc[:,[2] + list(range(11, 693))]
 
         # Assign arrays for timestamp and range data
         self.lid_t = np.round(lid["field.header.stamp"].values / 1e9, 3) # converting to seconds with three decimal places
         self.lid_r = lid.iloc[:,1:].values
-
-
-    def plot_ground_truth(self):
-        """
-        Plots a visualization of the ground truth trajectory and environment.
-
-        """
-
-        fig = plt.figure(figsize=(9,7))
-        plt.plot(self.gt_traj[:,0], self.gt_traj[:,1], 'r.-', markersize=1, label="Trajectory")
-        plt.plot(self.gt_traj[0,0], self.gt_traj[0,1], 'ro', markersize=10, label="Trajectory start")
-        plt.plot(self.gt_traj[-1,0], self.gt_traj[-1,1], 'rx', markersize=12, label="Trajectory end")
-        plt.plot(self.gt_wall[:2,0], self.gt_wall[:2,1], 'k-', linewidth=1, label="Maze walls")
-        plt.plot(self.gt_wall[:,0], self.gt_wall[:,1], 'k.', markersize=0.5)
-        plt.xlim(-0.1, 1.7)
-        plt.ylim(-0.1, 1.3)
-        plt.legend(loc="right")
-        plt.grid(alpha=0.5)
-        plt.title("Ground truth of experiment")
-        plt.show()
 
 
     def set_params(self, imu_f=0.05, imu_w=10*np.pi/180,
@@ -361,7 +329,7 @@ class SLAM:
         """
 
         if self.algorithm == "icp":
-            self.pc_t = np.array([-self.gf.y_pc + self.gt_traj[0][0], self.gf.x_pc + self.gt_traj[0][1]]).T
+            self.pc_t = np.array([-self.gf.y_pc , self.gf.x_pc ]).T
 
         if self.algorithm == "feature":
             # Remove unsufficiently matched line segments
@@ -375,11 +343,11 @@ class SLAM:
 
             # Transform LiDAR scans in global reference frame
             for line in self.gf.lines:
-                line.x_start, line.y_start = -line.y_start + self.gt_traj[0][0], line.x_start + self.gt_traj[0][1]
-                line.x_end, line.y_end = -line.y_end + self.gt_traj[0][0], line.x_end + self.gt_traj[0][1]
+                line.x_start, line.y_start = -line.y_start , line.x_start
+                line.x_end, line.y_end = -line.y_end , line.x_end
 
         # Transform final state estimates
-        self.p_est[:,:2] = (np.array([[0,-1],[1,0]]).dot(self.p_est[:,:2].T) + self.gt_traj[0].reshape(2,1)).T
+        self.p_est[:,:2] = (np.array([[0,-1],[1,0]]).dot(self.p_est[:,:2].T) ).T
         self.v_est[:,:2] = np.array([[0,-1],[1,0]]).dot(self.v_est[:,:2].T).T
 
 
@@ -390,10 +358,6 @@ class SLAM:
         """
 
         fig, ax = plt.subplots(figsize=(10,8))
-
-        ax.plot(self.gt_traj[:,0], self.gt_traj[:,1], 'r-', markersize=0.5, label="Ground truth trajectory")
-        ax.plot(self.gt_wall[:2,0], self.gt_wall[:2,1], 'k-', linewidth=0.5, label="Ground truth maze walls")
-        ax.plot(self.gt_wall[:,0], self.gt_wall[:,1], 'k.', markersize=0.5, alpha=0.25)
 
         if self.algorithm == "icp":
             # Plot all of the point cloud for complete visualization
@@ -413,8 +377,8 @@ class SLAM:
         ax.plot(reconstructed_path[:,1], reconstructed_path[:,0]*-1, 'b-', lw=3, label="Estimated Trajectory", zorder=5)
         
         # Auto-scale axis limits to include all data
-        all_x = np.concatenate([self.gt_traj[:,0], self.gt_wall[:,0], x_plot if self.algorithm == "icp" else [0], reconstructed_path[:,1]])
-        all_y = np.concatenate([self.gt_traj[:,1], self.gt_wall[:,1], y_plot if self.algorithm == "icp" else [0], reconstructed_path[:,0]*-1])
+        all_x = np.concatenate([x_plot if self.algorithm == "icp" else [0], reconstructed_path[:,1]])
+        all_y = np.concatenate([y_plot if self.algorithm == "icp" else [0], reconstructed_path[:,0]*-1])
         
         x_margin = (np.max(all_x) - np.min(all_x)) * 0.1
         y_margin = (np.max(all_y) - np.min(all_y)) * 0.1
@@ -428,84 +392,6 @@ class SLAM:
         ax.set_ylabel("y [m]")
         plt.show()
         print(self.gf.T)
-
-
-    @property
-    def RMSE_traj(self):
-        """
-        Calculates and returns the root mean squared error (RMSE) for the
-        deviation distance between the trajectory estimate and the ground truth.
-
-        Returns:
-            RMSE_traj (float):
-                Root mean squared error (RMSE) for the trajectory error.
-        """
-        if not self.use_gt:
-            return None
-        RMSE_traj = SLAM.RMSE(self.gt_traj, self.p_est[:,:2])
-        return RMSE_traj
-
-
-    @property
-    def RMSE_wall_feature(self):
-        """
-        Calculates and returns the root mean squared error (RMSE) for the
-        deviation distance between the mapping estimate and the ground truth,
-        using the feature-based scan matching approach.
-
-        Returns:
-            RMSE_wall (float):
-                Root mean squared error (RMSE) for the maze wall error.
-        """
-        if not self.use_gt:
-            return None
-        
-        x_wall = np.array([])
-        y_wall = np.array([])
-
-        for line in self.gf.lines:
-            x_wall = np.hstack([x_wall, np.linspace(line.x_start, line.x_end, int(line.length*1000))])
-            y_wall = np.hstack([y_wall, np.linspace(line.y_start, line.y_end, int(line.length*1000))])
-
-        pc_t = np.vstack([x_wall, y_wall]).T
-
-        RMSE_wall = SLAM.RMSE(self.gt_wall, pc_t)
-        return RMSE_wall
-
-    @property
-    def RMSE_wall_icp(self):
-        """
-        Calculates and returns the root mean squared error (RMSE) for the
-        deviation distance between the mapping estimate and the ground truth,
-        using the ICP algorithm.
-
-        Returns:
-            RMSE_wall (float):
-                Root mean squared error (RMSE) for the maze wall error.
-        """
-        if not self.use_gt:
-            return None
-        RMSE_wall = SLAM.RMSE(self.gt_wall, self.pc_t)
-        return RMSE_wall
-
-    def plot_traj_error(self):
-        """
-        Plots deviation error of trajectory from start to finish.
-
-        """
-
-        RMSE_traj, traj_error = SLAM.RMSE(self.gt_traj, self.p_est[:,:2], return_error_arr=True)
-        fig, ax = plt.subplots(figsize=(8,6))
-        ax.plot(np.sqrt(traj_error), 'r', label="Residual distance from ground truth")
-        ax.plot(RMSE_traj*np.ones((len(traj_error),)), 'k--', lw=1, label="RMSE = {0}m".format(round(RMSE_traj,4)))
-        ax.set_title("Deviation error of trajectory")
-        ax.set_xlabel("Time step k")
-        ax.set_ylabel("Deviation error [m]")
-        ax.set_xlim([0, len(traj_error)-1])
-        ax.set_ylim([-0.01, 0.25])
-        plt.legend(loc="upper left")
-        plt.show()
-
 
     #####################
     ### Class methods ###
@@ -703,38 +589,3 @@ class SLAM:
         H = np.zeros([3, 15])
         H[:3,:3] = np.eye(3)
         return H
-
-
-    def RMSE(gt, est, return_error_arr=False):
-        """
-        Calculates and returns the root mean squared error (RMSE) for the
-        deviation distance between the estimate and the ground truth.
-
-        Args:
-            gt [Mx2 Numpy array]:
-                Numpy array with M rows of ground truth coordinates
-                (x-coordinate: 1st column, y-coordinate: 2nd column).
-            est [Nx2 Numpy array]:
-                Numpy array with N rows of position estimate coordinates
-                (x-coordinate: 1st column, y-coordinate: 2nd column).
-            return_error_arr (bool):
-                If True, the function also returns the list ´error´ containing
-                the errors for each estimated point. Only really makes sense for
-                trajectory.
-
-        Returns:
-            RMSE (float):
-                Root mean squared error (RMSE) of the deviation error.
-            error (list, opt.):
-                List of deviation errors for each individual estimate point.
-        """
-
-        error = []
-        for i in range(est.shape[0]):
-            d = np.min(np.sum((gt - est[i,:])**2, axis=1))
-            error.append(d)
-        MSE = sum(error)/len(error)
-        RMSE = np.sqrt(MSE)
-        if return_error_arr:
-            return RMSE, error
-        return RMSE

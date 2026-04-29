@@ -40,11 +40,7 @@ def convert_imu(imu_file):
     df.rename(columns={'timestamp': 'field.header.stamp'}, inplace=True)
     # Keep only the needed columns
     df = df[['field.header.stamp', 'field.orientation.x', 'field.orientation.y', 'field.orientation.z', 'field.orientation.w', 'field.angular_velocity.x', 'field.angular_velocity.y', 'field.angular_velocity.z', 'field.linear_acceleration.x', 'field.linear_acceleration.y', 'field.linear_acceleration.z']]
-    
-    output_file = imu_file.replace('.csv', '_converted.csv')
-    df.to_csv(output_file, index=False)
-    print(f"Converted IMU file saved as {output_file}")
-    return output_file
+    return df
 
 def convert_lidar(lidar_file):
     """Convert LiDAR file to expected format for 360-degree scans."""
@@ -85,11 +81,7 @@ def convert_lidar(lidar_file):
     # Add interpolated range columns
     for i in range(num_ranges):
         new_df[f'range_{i}'] = interpolated_data[:, i]
-
-    output_file = lidar_file.replace('.csv', '_converted.csv')
-    new_df.to_csv(output_file, index=False)
-    print(f"Converted LiDAR file saved as {output_file}")
-    return output_file
+    return new_df
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
