@@ -155,7 +155,7 @@ class ScanICP(object):
 
             Ricp, Ticp, d, i = icp(P_prev, P_new)
 
-        return Ricp, Ticp
+        return Ricp, Ticp, d
 
 class GlobalFrame(object):
 
@@ -171,7 +171,7 @@ class GlobalFrame(object):
         self.R = np.zeros((self.n,2,2))
         self.R[0,:,:] = np.eye(2)
         self.T = np.zeros((self.n,2))
-
+        self.d = np.zeros((self.n,1))
         self.scans = [self.ref_scan]
 
     def next_scan(self, r, pose=None, head=None):
@@ -183,10 +183,11 @@ class GlobalFrame(object):
             head = np.arctan2(self.R[k-1,1,0], self.R[k-1,0,0])
 
         new_scan = ScanICP(r)
-        Ricp, Ticp = new_scan.icp_match(self.scans[-1])
+        Ricp, Ticp, d = new_scan.icp_match(self.scans[-1])
 
         self.R[k,:,:] = np.dot(self.R[k-1,:,:], Ricp.T)
         self.T[k,:] = np.dot(self.R[k,:,:], Ticp.reshape(2,1)).flatten()
+        self.d[k] = np.sum(np.dot(d.T, d))
 
         self.pose = pose + self.T[k,:].flatten()
         head = wraptopi(head + np.arctan2(Ricp[1,0], Ricp[0,0]))

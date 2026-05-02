@@ -178,6 +178,7 @@ class SLAM:
         self.R_lid = np.diag([std_lid_p, std_lid_p, std_lid_r])**2
 
 
+
     def initialize_arrays(self):
         """
         Initializes state and covariance arrays. Initial covariance standard
@@ -387,11 +388,20 @@ class SLAM:
         
         plt.legend(loc="upper right", fontsize=9)
         plt.grid(alpha=0.5)
-        graphname = "Map 1, Trial 1"
+        graphname = "Map 3, Trial 4"
         ax.set_title("SLAM Results for "+ graphname)
         ax.set_xlabel("x [m]")
         ax.set_ylabel("y [m]")
         plt.show()
+
+        fig, ax = plt.subplots(figsize=(10,8))
+        avg_error = np.sum(self.gf.d)/self.gf.d.shape[0]
+        ax.plot(self.gf.d, 'r-', lw=3, label="Sum of squared distances between matched points")
+        ax.set_title("ICP Matching Error for "+ graphname + " (Average error: {:.2f} m^2)".format(avg_error))
+        ax.set_xlabel("LiDAR scan index")
+        ax.set_ylabel("Sum of Squared Distances")
+        plt.show()
+
 
     #####################
     ### Class methods ###
