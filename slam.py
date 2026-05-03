@@ -192,14 +192,14 @@ class SLAM:
         self.q_est = np.zeros([self.n, 4])      # orientation estimates as quaternions
         self.del_u_est = np.zeros([self.n, 6])  # sensor bias estimates
         self.p_cov = np.zeros([self.n, 15, 15]) # covariance array at each timestep
-        self.lidar_states = np.zeros([self.n, 3]) # position and heading state associated with each LiDAR scan
+        self.y_est = np.zeros([self.n, 3]) # position and heading state from LiDAR scan matching algorithm
 
         # Set initial values
         self.p_est[0] = np.zeros((1,3))
         self.v_est[0] = np.zeros((1,3))
         self.q_est[0] = self.imu_q[0,:]
         self.del_u_est[0] = np.zeros((1,6))
-        self.lidar_states[0] = np.zeros((1,3))
+        self.y_est[0] = np.zeros((1,3))
 
         # Initial uncertainties in standard deviations
         p_cov_p = 0.02*np.ones(3,)                # [m] position
@@ -308,12 +308,12 @@ class SLAM:
                 lid_i += 1
 
             # Store into state and uncertainty arrays
+            self.y_est[k,:] = y_k.reshape(3,)
             self.p_est[k,:] = p_check.reshape(3,)
             self.v_est[k,:] = v_check.reshape(3,)
             self.q_est[k,:] = q_check.reshape(4,)
             self.del_u_est[k,:] = del_u_check.reshape(6,)
             self.p_cov[k,:,:] = p_cov_check
-            self.lidar_states[k,:] = y_k.reshape(3,)
 
             # Increment time
             t += delta_t
@@ -397,10 +397,29 @@ class SLAM:
         fig, ax = plt.subplots(figsize=(10,8))
         avg_error = np.sum(self.gf.d)/self.gf.d.shape[0]
         ax.plot(self.gf.d, 'r-', lw=3, label="Sum of squared distances between matched points")
-        ax.set_title("ICP Matching Error for "+ graphname + " (Average error: {:.2f} m^2)".format(avg_error))
+        ax.set_title("ICP Matching Error for "+ graphname + " (Average error: {:.3f} m^2)".format(avg_error))
         ax.set_xlabel("LiDAR scan index")
         ax.set_ylabel("Sum of Squared Distances")
         plt.show()
+
+        fig, ax = plt.subplots(figsize=(10,8))
+        det_cov = np.log(np.linalg.det(self.p_cov))
+        avg_cov = np.mean(det_cov)
+        ax.plot(det_cov, 'g-', lw=3, label="Determinant of state covariance matrix")
+        ax.set_title("Determinant of State Covariance Matrix for "+ graphname + " (Average log determinant: {:.3f})".format(avg_cov))
+        ax.set_xlabel("LiDAR scan index")
+        ax.set_ylabel("Log Determinant")
+        plt.show()
+
+        fig, ax = plt.subplots(figsize=(10,8))
+        innovation_residual= np.linalg.norm(self.y_est[:,:1], axis=1)
+        avg_ir = np.mean(innovation_residual)
+        ax.plot(innovation_residual, 'b-', lw=3, label="Innovation Residual")
+        ax.set_title("Innovation Residual for "+ graphname + " (Average residual: {:.3f} m)".format(avg_ir))
+        ax.set_xlabel("LiDAR scan index")
+        ax.set_ylabel("Residual")
+        plt.show()
+
 
 
     #####################
